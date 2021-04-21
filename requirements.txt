@@ -1,0 +1,10 @@
+numpy
+pymysql
+pandas
+scipy
+TA-Lib
+technical
+openpyxl
+cryptography
+discord.py
+python-dotenv
