@@ -41,7 +41,7 @@ class MyClient(discord.Client):
 
             sell_agreement = s_score['sell_agreement'].iloc[-1]
             sell_disagreement = s_score['sell_disagreement'].iloc[-1]
-            message = f'#buy_agreement: ' + str(buy_agreement)
+            message = f''' ``` FPT\nbuy_agreement: %s buy_disagreement: %s\nsell_agreement: %s sell_disagreement: %s\n```''' % (buy_agreement, buy_disagreement, sell_agreement, sell_disagreement)
             counter += 1
             await channel.send(str(counter) + message)
             await asyncio.sleep(10)  # task runs every 60 seconds
