@@ -8,3 +8,5 @@ openpyxl
 cryptography
 discord.py
 python-dotenv
+tabulate
+requests

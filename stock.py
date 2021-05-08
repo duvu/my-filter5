@@ -1,7 +1,7 @@
 import pandas as pd
 import pymysql
 import talib
-from technical.consensus import Consensus
+
 from technical.consensus.summary import SummaryConsensus
 
 
@@ -28,9 +28,6 @@ class Stock:
             self.EPS_MEAN4 = self.df_finance['eps'].mean()
             rev_df_fi = self.df_finance['eps'][::-1]
             self.df_finance['eps_changed'] = rev_df_fi.pct_change()
-
-            # print(self.df_fi['eps'])
-            # print(self.df_fi['eps_changed'].mean())
 
             self.BVPS = self.df_finance['bvps'].iloc[0]
             self.BVPS_MEAN4 = self.df_finance['bvps'].mean()
@@ -299,7 +296,8 @@ class Stock:
     # Load 1000 days = 3 years
     def __load_price_board_day(self, length=1000):
         try:
-            sql_resolution_d = """select code, t, o as open, h as high, l as low, c as close, v as volume  from tbl_price_board_day as pb where pb.code='""" + self.code + """' order by t desc limit """ + str(length)
+            sql_resolution_d = """select code, t, o as open, h as high, l as low, c as close, v as volume  from tbl_price_board_day as pb where pb.code='""" + self.code + """' order by t desc limit """ + str(
+                length)
             self.df_day = pd.DataFrame(pd.read_sql_query(sql_resolution_d, self.conn))
         except pd.io.sql.DatabaseError as ex:
             print("Something went wrong", ex)
@@ -307,7 +305,8 @@ class Stock:
     # Load 6k minute = 100 hours
     def __load_price_board_minute(self, length=6000):
         try:
-            sql_resolution_m = """select code, t, o as open, h as high, l as low, c as close, v as volume from tbl_price_board_minute as pb where pb.code='""" + self.code + """' order by t desc limit """ + str(length)
+            sql_resolution_m = """select code, t, o as open, h as high, l as low, c as close, v as volume from tbl_price_board_minute as pb where pb.code='""" + self.code + """' order by t desc limit """ + str(
+                length)
             self.df_minute = pd.DataFrame(pd.read_sql_query(sql_resolution_m, self.conn))
         except pd.io.sql.DatabaseError as ex:
             print("Something went wrong")
@@ -441,6 +440,258 @@ class Stock:
         except:
             return pd.DataFrame({'CDL2CROWS': [-1]})
 
+    def uptrend_ichi(self):
+        # up_trends = self.df_day.filter(regex="^(uptrend)_.*").fillna(0)
+        # print('dataframe', self.df_day['uptrend_ichimoku'])
+        return False
+
+    # ICHIMOKU EVALUATE
+    def evaluate_ichimoku5(self, prefix="ichimoku", impact_buy=1, impact_sell=1, ratio=0.1):
+        """
+        evaluates the ichimoku
+        :param ratio:
+        :param impact_sell:
+        :param impact_buy:
+        :param period:
+        :param prefix:
+        :return:
+        """
+        print('...EVALUATE_ICHIMOKU5')
+        # self._weights(impact_buy, impact_sell)
+        # dataframe = self.df_day
+        name = '{}'.format(prefix)
+        ichimoku = ichimoku5(self.df_day)
+
+        self.df_day['{}_ks9'.format(name)] = ichimoku['ks9']
+        self.df_day['{}_ks17'.format(name)] = ichimoku['ks17']
+        self.df_day['{}_ks26'.format(name)] = ichimoku['ks26']
+        self.df_day['{}_ks65'.format(name)] = ichimoku['ks65']
+        self.df_day['{}_ks129'.format(name)] = ichimoku['ks129']
+        self.df_day['{}_span_a'.format(name)] = ichimoku['span_a']
+        self.df_day['{}_span_b'.format(name)] = ichimoku['span_b']
+        self.df_day['{}_span_1'.format(name)] = ichimoku['span_1']
+        self.df_day['{}_span_2'.format(name)] = ichimoku['span_2']
+        self.df_day['{}_lagging_t2'.format(name)] = ichimoku['lagging_t2']
+        self.df_day['{}_lagging_t3'.format(name)] = ichimoku['lagging_t3']
+
+        self.df_day['{}_ks_9_sl_t3'.format(name)] = ichimoku['ks_9_sl_t3']
+        self.df_day['{}_ks_17_sl_t3'.format(name)] = ichimoku['ks_17_sl_t3']
+        self.df_day['{}_span_2_sl_t2p1'.format(name)] = ichimoku['span_2_sl_t2p1']
+        self.df_day['{}_lagging_pt2m1'.format(name)] = ichimoku['lagging_pt2m1']
+        self.df_day['{}_lagging_mt2p1'.format(name)] = ichimoku['lagging_mt2p1']
+
+        # UPTREND
+        # Uptrend = (KS9 > Ref(Span1,-t3) AND KS9>Ref(Span2,-t3) AND (KS17>Ref(Span1,-t3) AND KS17>Ref(Span2,-t3))) ;
+        self.df_day.loc[
+            (
+                    (self.df_day['{}_ks9'.format(name)] > self.df_day['{}_span_a'.format(name)]) &
+                    (self.df_day['{}_ks9'.format(name)] > self.df_day['{}_span_b'.format(name)]) &
+                    (self.df_day['{}_ks17'.format(name)] > self.df_day['{}_span_a'.format(name)]) &
+                    (self.df_day['{}_ks17'.format(name)] > self.df_day['{}_span_b'.format(name)])
+
+            ),
+            'uptrend_{}'.format(name)
+        ] = (1 * impact_buy)
+
+        # print('uptrend %s' % self.df_day['uptrend_ichimoku'])
+
+        # DOWNTREND
+        # Downtrend=(KS9 < Ref(Span1,-t3) AND KS9<Ref(Span2,-t3) AND (KS17<Ref(Span1,-t3) AND KS17<Ref(Span2,-t3))) ;
+        self.df_day.loc[
+            (
+                    (self.df_day['{}_ks9'.format(name)] < self.df_day['{}_span_a'.format(name)])
+                    # (self.df_day['{}_ks9'.format(name)] < self.df_day['{}_span_b'.format(name)]) &
+                    # (self.df_day['{}_ks17'.format(name)] < self.df_day['{}_span_a'.format(name)]) &
+                    # (self.df_day['{}_ks17'.format(name)] < self.df_day['{}_span_b'.format(name)])
+            ),
+            'downtrend_{}'.format(name)
+        ] = (1 * impact_sell)
+        # print('downtrend %s' % self.df_day['downtrend_ichimoku'])
+        # print('_ks9 %s' % self.df_day['{}_ks9'.format(name)])
+        # print('_span_a %s' % self.df_day['{}_span_1'.format(name)])
+        # print('compare %s' % (self.df_day['{}_ks9'.format(name)] < self.df_day['{}_span_a'.format(name)]))
+
+        print('%s' % (self.df_day['{}_span_a'.format(name)]))
+        print('%s' % (self.df_day['{}_span_a'.format(name)] < self.df_day['open']))
+
+        # BreakOutAllKuMoCloud- Mua dai han
+        # Chikou back26 > Komu va Kumosen hay chilku cat len Kumo va Kumo sen;
+        # hoac Chikou 17 >  Komu va Kumosen hay chilku cat len Kumo va Kumo sen;
+        # Kijun 9 huong len hoac Kijun 17 huong len;
+        # Gia cong cuar lon hon Kjjun 65;
+        self.df_day.loc[
+            (
+                    (  # CD1_UP
+                            (self.df_day['{}_lagging_t3'.format(name)] <= self.df_day['{}_span_b'.format(name)]) |
+                            (self.df_day['{}_lagging_t2'.format(name)] <= self.df_day['{}_ks_17_sl_t3'.format(name)]) |
+                            (self.df_day['{}_lagging_t2'.format(name)] <= self.df_day['{}_span_a'.format(name)]) |
+                            (self.df_day['{}_lagging_t2'.format(name)] <= self.df_day['{}_ks_9_sl_t3'.format(name)])
+                    ) &
+                    (
+                        # CD2_UP
+                            (self.df_day['{}_lagging_pt2m1'.format(name)] > self.df_day['{}_span_2_sl_t2p1'.format(name)]) &
+                            (self.df_day['close'.format(name)] > self.df_day['{}_ks17'.format(name)]) &
+                            (self.df_day['close'.format(name)] > self.df_day['{}_span_1'.format(name)]) &
+                            (self.df_day['close'.format(name)] > self.df_day['{}_ks9'.format(name)])
+                    ) &
+                    (  # CD3_UP
+                            (self.df_day['{}_ks9'.format(name)] >= (self.df_day['{}_ks9'.format(name)].shift(-1))) |
+                            (self.df_day['{}_ks17'.format(name)] >= (self.df_day['{}_ks17'.format(name)].shift(-1)))
+                    ) &
+                    (  # CD4_UP
+                            self.df_day['close'] > self.df_day['{}_ks65'.format(name)]
+                    )
+            ),
+            'breakout_up_{}'.format(name)
+        ] = (1 * impact_buy)
+
+        # DOWN
+        self.df_day.loc[
+            (
+                    (  # CD1_DOWN
+                            (self.df_day['{}_lagging_t2'.format(name)] >= self.df_day['{}_span_b'.format(name)]) |
+                            (self.df_day['{}_lagging_t2'.format(name)] >= self.df_day['{}_ks_17_sl_t3'.format(name)]) |
+                            (self.df_day['{}_lagging_t2'.format(name)] >= self.df_day['{}_span_a'.format(name)]) |
+                            (self.df_day['{}_lagging_t2'.format(name)] >= self.df_day['{}_ks_9_sl_t3'.format(name)])
+                    ) &
+                    (  # CD2_DOWN
+                            (self.df_day['{}_lagging_pt2m1'.format(name)] < self.df_day['{}_span_2_sl_t2p1'.format(name)]) &
+                            (self.df_day['close'.format(name)] < self.df_day['{}_ks17'.format(name)]) &
+                            (self.df_day['close'.format(name)] < self.df_day['{}_span_1'.format(name)]) &
+                            (self.df_day['close'.format(name)] < self.df_day['{}_ks9'.format(name)])
+
+                    ) &
+                    (  # CD3_DOWN
+                            (self.df_day['{}_ks9'.format(name)] <= (self.df_day['{}_ks9'.format(name)].shift(-1))) |
+                            (self.df_day['{}_ks17'.format(name)] <= (self.df_day['{}_ks17'.format(name)].shift(-1)))
+                    ) &
+                    (  # CD4_DOWN
+                            self.df_day['close'] < self.df_day['{}_ks65'.format(name)]
+                    )
+            ),
+            'breakout_down_{}'.format(name)
+        ] = (1 * impact_sell)
+
+        # STRENGTHEN UP
+        self.df_day.loc[
+            (
+                    (((self.df_day['{}_ks9'.format(name)].shift(-1) - self.df_day['{}_ks17'.format(name)].shift(-1)) / self.df_day['{}_ks17'.format(name)].shift(-1)).abs() < ratio) &
+                    (((self.df_day['{}_ks9'.format(name)] - self.df_day['{}_ks17'.format(name)]) / self.df_day['{}_ks17'.format(name)]).abs() < ratio) &
+                    (self.df_day['{}_ks17'.format(name)] > (self.df_day['{}_ks17'.format(name)].shift(-1))) &
+                    (self.df_day['{}_ks65'.format(name)] >= (self.df_day['{}_ks65'.format(name)].shift(-1))) &
+                    (self.df_day['close'] >= self.df_day['{}_ks65'.format(name)]) &
+                    ((self.df_day['{}_span_1'.format(name)] - self.df_day['{}_span_2'.format(name)]) / self.df_day['{}_span_2'.format(name)]).abs() < 5 * ratio
+            ),
+            'boom_up_{}'.format(name)
+        ] = (1 * impact_buy)
+
+        # STRENGTHEN DOWN
+        self.df_day.loc[
+            (
+                    (((self.df_day['{}_ks9'.format(name)].shift(-1) - self.df_day['{}_ks17'.format(name)].shift(-1)) / self.df_day['{}_ks17'.format(name)].shift(-1)).abs() < ratio) &
+                    (((self.df_day['{}_ks9'.format(name)] - self.df_day['{}_ks17'.format(name)]) / self.df_day['{}_ks17'.format(name)]).abs() < ratio) &
+                    (self.df_day['{}_ks17'.format(name)] < (self.df_day['{}_ks17'.format(name)].shift(-1))) &
+                    (self.df_day['{}_ks65'.format(name)] <= (self.df_day['{}_ks65'.format(name)].shift(-1))) &
+                    (self.df_day['close'] >= self.df_day['{}_ks65'.format(name)]) &  # TODO: CHECK?
+                    ((self.df_day['{}_span_1'.format(name)] - self.df_day['{}_span_2'.format(name)]) / self.df_day['{}_span_2'.format(name)]).abs() < 5 * ratio
+            ),
+            'boom_down_{}'.format(name)
+        ] = (1 * impact_sell)
+
+        # price is above the cloud
+        self.df_day.loc[
+            (
+                    (self.df_day['{}_span_a'.format(name)] > self.df_day['open']) &
+                    (self.df_day['{}_span_b'.format(name)] > self.df_day['open'])
+            ),
+            'buy_{}'.format(name)
+        ] = (1 * impact_buy)
+
+        # price is below the cloud
+        self.df_day.loc[
+            (
+                    (self.df_day['{}_span_a'.format(name)] < self.df_day['open']) &
+                    (self.df_day['{}_span_b'.format(name)] < self.df_day['open'])
+
+            ),
+            'sell_{}'.format(name)
+        ] = (1 * impact_sell)
+        print('___EVALUATE_ICHIMOKU5')
+
     # destructor
     def __del__(self):
         self.conn.close()
+
+
+# ----------------------------------------------------------------------------- #
+
+########################################
+#
+# Custom Ichimoku Cloud
+#
+def ichimoku5(dataframe,
+              t1=9,
+              t2=17,
+              t3=26,
+              t4=65,
+              t5=129):
+    # KS_9
+    KS_9 = (dataframe['high'].rolling(window=t1).max()
+            + dataframe['low'].rolling(window=t1).min()) / 2
+
+    # KS_17
+    KS_17 = (dataframe['high'].rolling(window=t2).max()
+             + dataframe['low'].rolling(window=t2).min()) / 2
+
+    # KS_26
+    KS_26 = (dataframe['high'].rolling(window=t3).max()
+             + dataframe['low'].rolling(window=t3).min()) / 2
+
+    # KS_65
+    KS_65 = (dataframe['high'].rolling(window=t4).max()
+             + dataframe['low'].rolling(window=t4).min()) / 2
+
+    # KS_129
+    KS_129 = (dataframe['high'].rolling(window=t5).max()
+              + dataframe['low'].rolling(window=t5).min()) / 2
+
+    SPAN_1 = (KS_9 + KS_17) / 2
+    SPAN_2 = (dataframe['high'].rolling(window=t3).max()
+              + dataframe['low'].rolling(window=t3).min()) / 2
+
+    SPAN_A = SPAN_1.shift(-t3)
+    SPAN_B = SPAN_2.shift(-t3)
+
+    LAGGING_T2 = dataframe['close'].shift(-t2)
+    LAGGING_T3 = dataframe['close'].shift(-t3)
+
+    LAGGING_PT2M1 = dataframe['close'].shift(t2 - 1)  # lagging plus (t2 minus 1)
+    LAGGING_MT2P1 = dataframe['close'].shift(-(t2 + 1))  # lagging minus (t2 plus 1)
+
+    cloud_green = (SPAN_A > SPAN_B)
+    cloud_red = (SPAN_B > SPAN_A)
+
+    KS_17_SL_T3 = KS_17.shift(-t3)  # KS_17 shift left t3
+    KS_9_SL_T3 = KS_9.shift(-t3)
+    SPAN_2_SL_T2P1 = SPAN_2.shift(-(t2 + 1))  # SPAN 2 shift left t2 + 1
+
+    return {
+        'ks9': KS_9,
+        'ks17': KS_17,
+        'ks26': KS_26,  # extend KS_26
+        'ks65': KS_65,  # extend KS_65
+        'ks129': KS_129,  # extend KS_129
+        'span_a': SPAN_A,
+        'span_b': SPAN_B,
+        'span_1': SPAN_1,
+        'span_2': SPAN_2,
+        'lagging_t2': LAGGING_T2,
+        'lagging_t3': LAGGING_T3,  # extend
+        'cloud_green': cloud_green,
+        'cloud_red': cloud_red,
+        'ks_9_sl_t3': KS_9_SL_T3,
+        'ks_17_sl_t3': KS_17_SL_T3,
+        'span_2_sl_t2p1': SPAN_2_SL_T2P1,
+        'lagging_pt2m1': LAGGING_PT2M1,
+        'lagging_mt2p1': LAGGING_MT2P1,
+    }

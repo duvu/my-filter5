@@ -1,17 +1,85 @@
+import os
 import pymysql
 import pandas as pd
 from datetime import datetime
-
+import multiprocessing as mp
+from dotenv import load_dotenv
+from discord import Webhook, RequestsWebhookAdapter, File
 from stock import Stock
 
-if __name__=='__main__':
+load_dotenv()
+WEBHOOK_ID = os.getenv('DISCORD_WEBHOOK')
+WEBHOOK_TOKEN = os.getenv('DISCORD_WEBHOOK_TOKEN')
+
+
+def stock_worker(code):
+    try:
+        s = Stock(code=code)
+        # s.consensus_day.evaluate_ichimoku()
+        s.evaluate_ichimoku5()
+        # buy_agreement = s_score['buy_agreement'].iloc[-1]
+        # buy_disagreement = s_score['buy_disagreement'].iloc[-1]
+        # if buy_agreement > buy_disagreement:
+        #     print("BUY BUY BUY %s" % code)
+        #     return [
+        #         s.LAST_SESSION,
+        #         code,
+        #         s.f_total_vol(),
+        #         s.EPS,
+        #         s.EPS_MEAN4,
+        #         s.f_get_current_price(),
+        #         s.f_last_changed() * 100,
+        #         buy_agreement,
+        #         buy_disagreement
+        #     ]
+        #  check uptrend & downtrend
+        if s.uptrend_ichi() > 0:
+            print("BUY BUY BUY %s" % code)
+            return [
+                s.LAST_SESSION,
+                code,
+                s.f_total_vol(),
+                s.EPS,
+                s.EPS_MEAN4,
+                s.f_get_current_price(),
+                s.f_last_changed() * 100,
+                s.uptrend_ichi()
+            ]
+
+        del s  # dispose s
+    except Exception as ex:
+        print('Exception', ex)
+
+
+def pool_stock_man(codes):
+    p = mp.Pool(1)
+    # x = p.map(work_log, codes)
+    buy_rows = [x for x in p.map(stock_worker, codes) if x is not None]
+    p.close()
+    p.join()
+    send_to_discord(buy_rows)
+
+
+def send_to_discord(res):
+    results_buy = pd.DataFrame(res, columns=["Session", "Code", "Volume", "EPS", "EPS_MEAN4", 'Price', 'Changed', 'Agree', 'Disagree'])
+    sheetName = datetime.now().strftime("%b%d")
+    results_buy.to_excel("outputs/outputs_buy" + sheetName + ".xlsx", sheet_name=sheetName)
+    webhook = Webhook.partial(WEBHOOK_ID, WEBHOOK_TOKEN, adapter=RequestsWebhookAdapter())
+    webhook.send(file=File("./outputs/outputs_buy" + sheetName + ".xlsx"), username='Vu D.')
+
+
+if __name__ == '__main__':
     print('Hello ...')
     conn = pymysql.connect(host='localhost', user='admin', password='123456', database='mystocks')
     cursor = conn.cursor()
     # sql_query = pd.read_sql_query('''select * from price_board as pb where pb.t_code="FPT"''', conn)
-    sql_query = pd.read_sql_query('''select * from tbl_company where Exchange='HOSE' or Exchange='HNX' or Exchange='Upcom' order by Code ASC''', conn)
+    sql_query = pd.read_sql_query('''select * from tbl_company where Exchange='HOSE' or Exchange='HNX' or Exchange='Upcom' order by Code ASC limit 100''', conn)
     #
     df = pd.DataFrame(sql_query)
+    df_list = list(df['Code'])
+    # TEST Multiprocessing
+    pool_stock_man(df_list)
+
     # print('df', df)
     # df['stock'] = Stock(df['code'])
     # for (i, code, stock) in df.iterrows():
@@ -49,56 +117,56 @@ if __name__=='__main__':
     # print("Should BUY: ", s.consensus_day.score()['buy_agreement'].iloc[-1], s.consensus_day.score()['buy_disagreement'].iloc[-1])
     # print("Should SELL", s.consensus_day.score()['sell_agreement'].iloc[-1], s.consensus_day.score()['sell_disagreement'].iloc[-1])
 
-    buy_rows = []
-    sell_rows = []
-    for idx, code in df['Code'].iteritems():
-        try:
-            s = Stock(code=code)
-        except Exception as ex:
-            print('Exception', ex)
-            continue
-    #     # if s.f_check_7_conditions():
-    #     #     print('Good code: ', code)
+    # buy_rows = []
+    # sell_rows = []
+    # for idx, code in df['Code'].iteritems():
+    #     try:
+    #         s = Stock(code=code)
+    #     except Exception as ex:
+    #         print('Exception', ex)
+    #         continue
+    # #     # if s.f_check_7_conditions():
+    # #     #     print('Good code: ', code)
+    # #
+    # #     # April 7
+    # #     # if s.f_check_has_value() and s.f_check_gia_tri_giao_dich_trong_phien() and s.f_check_uptrend_1_month() and s.f_check_price_jump() and s.f_check_price_continous_jump():
+    # #     #     print(s.LAST_SESSION, "Good to buy: ", code, s.f_total_vol(), "last CCI: ", s.f_1stCCI())
+    # #     #     rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed()])
+    # #
+    # #     # if s.f_is_current_possible_bottom() and s.f_1stCCI() < -100 and s.f_check_gia_tri_giao_dich_trong_phien():
+    # #     #     rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_last_changed()])
+    # #
+    # #     # April 9
+    # #     # check gia giao dong 5 phien gan day
+    # #     # if s.f_khoi_luong_giao_dich_tang_dan_theo_so_phien() and s.EPS > 0 and s.f_check_gia_tri_giao_dich_trong_phien() and s.EPS_MEAN4 > 1000:
+    # #     #     rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed()])
+    # #
+    # #     # CDL2ROWS patterns
+    # #     if hasattr(s, 'CDLDOJISTAR') and s.CDLDOJISTAR[-1] > 0:
+    # #         rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed()])
+    #     # Ichimoku
+    #     s.consensus_day.evaluate_ichimoku()
+    #     s_score = s.consensus_day.score()
+    #     buy_agreement = s_score['buy_agreement'].iloc[-1]
+    #     buy_disagreement = s_score['buy_disagreement'].iloc[-1]
     #
-    #     # April 7
-    #     # if s.f_check_has_value() and s.f_check_gia_tri_giao_dich_trong_phien() and s.f_check_uptrend_1_month() and s.f_check_price_jump() and s.f_check_price_continous_jump():
-    #     #     print(s.LAST_SESSION, "Good to buy: ", code, s.f_total_vol(), "last CCI: ", s.f_1stCCI())
-    #     #     rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed()])
+    #     sell_agreement = s_score['sell_agreement'].iloc[-1]
+    #     sell_disagreement = s_score['sell_disagreement'].iloc[-1]
     #
-    #     # if s.f_is_current_possible_bottom() and s.f_1stCCI() < -100 and s.f_check_gia_tri_giao_dich_trong_phien():
-    #     #     rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_last_changed()])
+    #     if buy_agreement > buy_disagreement and s.f_check_gia_tri_giao_dich_trong_phien():
+    #         print('BUY BUY BUY', code)
+    #         buy_rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed() * 100, buy_agreement, buy_disagreement])
     #
-    #     # April 9
-    #     # check gia giao dong 5 phien gan day
-    #     # if s.f_khoi_luong_giao_dich_tang_dan_theo_so_phien() and s.EPS > 0 and s.f_check_gia_tri_giao_dich_trong_phien() and s.EPS_MEAN4 > 1000:
-    #     #     rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed()])
+    #     if sell_agreement > sell_disagreement and s.f_check_gia_tri_giao_dich_trong_phien():
+    #         print('SELL SELL SELL', code)
+    #         sell_rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed() * 100, sell_agreement, sell_disagreement])
+    #     # IMPORTANT after a loop, need to delete s
+    #     del s
     #
-    #     # CDL2ROWS patterns
-    #     if hasattr(s, 'CDLDOJISTAR') and s.CDLDOJISTAR[-1] > 0:
-    #         rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed()])
-        # Ichimoku
-        s.consensus_day.evaluate_ichimoku()
-        s_score = s.consensus_day.score()
-        buy_agreement = s_score['buy_agreement'].iloc[-1]
-        buy_disagreement = s_score['buy_disagreement'].iloc[-1]
-
-        sell_agreement = s_score['sell_agreement'].iloc[-1]
-        sell_disagreement = s_score['sell_disagreement'].iloc[-1]
-
-        if buy_agreement > buy_disagreement and s.f_check_gia_tri_giao_dich_trong_phien():
-            print('BUY BUY BUY', code)
-            buy_rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed() * 100, buy_agreement, buy_disagreement])
-
-        if sell_agreement > sell_disagreement and s.f_check_gia_tri_giao_dich_trong_phien():
-            print('SELL SELL SELL', code)
-            sell_rows.append([s.LAST_SESSION, code, s.f_total_vol(), s.EPS, s.EPS_MEAN4, s.f_1stCCI(), s.f_get_current_price(), s.f_last_changed() * 100, sell_agreement, sell_disagreement])
-        # IMPORTANT after a loop, need to delete s
-        del s
-
-    results_buy = pd.DataFrame(buy_rows, columns=["Session", "Code", "Volume", "EPS", "EPS_MEAN4", "CCI", 'Price', 'Changed', 'Agree', 'Disagree'])
-    sheetName = datetime.now().strftime("%b%d")
-    results_buy.to_excel("outputs/outputs_buy" + sheetName + ".xlsx", sheet_name=sheetName)
-
-    results_sell = pd.DataFrame(sell_rows, columns=["Session", "Code", "Volume", "EPS", "EPS_MEAN4", "CCI", 'Price', 'Changed', 'Agree', 'Disagree'])
-    sheetName = datetime.now().strftime("%b%d")
-    results_buy.to_excel("outputs/outputs_sell" + sheetName + ".xlsx", sheet_name=sheetName)
+    # results_buy = pd.DataFrame(buy_rows, columns=["Session", "Code", "Volume", "EPS", "EPS_MEAN4", "CCI", 'Price', 'Changed', 'Agree', 'Disagree'])
+    # sheetName = datetime.now().strftime("%b%d")
+    # results_buy.to_excel("outputs/outputs_buy" + sheetName + ".xlsx", sheet_name=sheetName)
+    #
+    # results_sell = pd.DataFrame(sell_rows, columns=["Session", "Code", "Volume", "EPS", "EPS_MEAN4", "CCI", 'Price', 'Changed', 'Agree', 'Disagree'])
+    # sheetName = datetime.now().strftime("%b%d")
+    # results_buy.to_excel("outputs/outputs_sell" + sheetName + ".xlsx", sheet_name=sheetName)
